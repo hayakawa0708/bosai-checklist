@@ -1,0 +1,11 @@
+# 秘密情報（コメントは必ず前の行に書く）
+.env
+.secret_key
+credentials.json
+*_token.json
+api_key.txt
+auth_config.yaml
+
+# OS
+.DS_Store
+Thumbs.db

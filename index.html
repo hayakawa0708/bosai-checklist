@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>防災持ち出し袋チェックリスト</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --border: #e2e4e9;
+    --accent: #2563eb;
+    --danger: #dc2626;
+    --danger-bg: #fdecec;
+    --warn: #b45309;
+    --warn-bg: #fff7e6;
+    --ok-bg: #eef1f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    padding-bottom: 60px;
+  }
+  header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 18px;
+  }
+  #lastInspection {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  main {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 12px;
+  }
+  .banner {
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+  }
+  .banner.error {
+    background: var(--danger-bg);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+  .banner button {
+    margin-top: 6px;
+    display: block;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .item:last-child { border-bottom: none; }
+  .item input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+  .item.checked .name {
+    text-decoration: line-through;
+    color: var(--muted);
+  }
+  .item-body { flex: 1; min-width: 0; }
+  .item-row1 {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .name {
+    flex: 2;
+    min-width: 0;
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 4px 2px;
+    width: 100%;
+  }
+  .qty {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 4px 2px;
+    width: 100%;
+  }
+  .name:focus, .qty:focus, .expiry:focus {
+    border-color: var(--accent);
+    background: var(--ok-bg);
+  }
+  .item-row2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .expiry-label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .expiry {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 13px;
+    background: var(--card);
+  }
+  .expiry-status {
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--ok-bg);
+    color: var(--muted);
+  }
+  .expiry-status.warn { background: var(--warn-bg); color: var(--warn); }
+  .expiry-status.danger { background: var(--danger-bg); color: var(--danger); }
+  .del {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  form#addForm {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  form#addForm input {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 14px;
+  }
+  form#addForm input[name="name"] { flex: 2 1 160px; }
+  form#addForm input[name="qty"] { flex: 1 1 90px; }
+  form#addForm .field {
+    flex: 1 1 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  form#addForm .field label {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  form#addForm .field input { width: 100%; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .section-title {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 8px 0 0;
+  }
+  footer {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 12px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>防災持ち出し袋チェックリスト</h1>
+  <div id="lastInspection">読み込み中...</div>
+</header>
+
+<main>
+  <div id="bannerArea"></div>
+
+  <div class="card">
+    <p class="section-title">持ち物リスト</p>
+    <p class="hint">持ち出し袋に実際に入っていることを確認できたらチェックを付けてください。</p>
+    <div id="itemList"></div>
+  </div>
+
+  <div class="card">
+    <p class="section-title">項目を追加</p>
+    <form id="addForm">
+      <input type="text" name="name" placeholder="持ち物名（例: 乾電池）" required>
+      <input type="text" name="qty" placeholder="個数（任意）">
+      <div class="field">
+        <label for="newExpiry">消費期限（任意）</label>
+        <input type="date" id="newExpiry" name="expiry">
+      </div>
+      <button type="submit">追加</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <p class="section-title">点検</p>
+    <button id="finishBtn">点検完了にする</button>
+    <p class="hint">押すと、全項目のチェックマークが外れます（持ち物は削除されません）。最終点検日時が更新されます。</p>
+  </div>
+
+  <div class="card">
+    <p class="section-title">バックアップ</p>
+    <div class="actions">
+      <button class="secondary" id="exportBtn">JSONで書き出す</button>
+      <button class="secondary" id="importBtn">JSONから復元する</button>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+    </div>
+  </div>
+</main>
+
+<footer>
+  データはこの端末・このブラウザだけに保存されます（他の端末とは同期しません）。機種変更前や定期的に「JSONで書き出す」でバックアップしてください。
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "bosaiChecklist_v1";
+  var FORMAT_VERSION = 1;
+  var WARN_DAYS = 30;
+
+  var state = null;
+  var saveSuspended = false;
+  var activeBannerKeys = {};
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  var defaultItems = [
+    "飲料水（500ml×3本以上）",
+    "非常食（3日分）",
+    "携帯ラジオ",
+    "携帯用トイレ",
+    "モバイルバッテリー・充電ケーブル",
+    "現金（小銭・小額紙幣）",
+    "身分証明書のコピー",
+    "保険証のコピー",
+    "救急セット（絆創膏・常備薬等）",
+    "マスク",
+    "軍手・手袋",
+    "レインウェア",
+    "ホイッスル",
+    "タオル",
+    "懐中電灯",
+    "予備電池",
+    "筆記用具・メモ",
+    "ウェットティッシュ"
+  ].map(function (name) { return makeItem(name, "", null); });
+
+  function makeItem(name, qty, expiry) {
+    return {
+      id: genId(),
+      name: name,
+      qty: qty || "",
+      expiry: expiry || null,
+      checked: false
+    };
+  }
+
+  function genId() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  }
+
+  function emptyState() {
+    return {
+      formatVersion: FORMAT_VERSION,
+      items: defaultItems.map(function (it) {
+        return { id: it.id, name: it.name, qty: it.qty, expiry: it.expiry, checked: it.checked };
+      }),
+      lastInspectionAt: null
+    };
+  }
+
+  function isValidItem(it) {
+    if (!it || typeof it !== "object") return false;
+    if (typeof it.id !== "string" || it.id === "") return false;
+    if (typeof it.name !== "string") return false;
+    if (typeof it.qty !== "string") return false;
+    if (it.expiry !== null && (typeof it.expiry !== "string" || !parseDate(it.expiry))) return false;
+    if (typeof it.checked !== "boolean") return false;
+    return true;
+  }
+
+  function isValidState(obj) {
+    if (!obj || typeof obj !== "object") return false;
+    if (obj.formatVersion !== FORMAT_VERSION) return false;
+    if (!Array.isArray(obj.items)) return false;
+    var seenIds = {};
+    for (var i = 0; i < obj.items.length; i++) {
+      var it = obj.items[i];
+      if (!isValidItem(it)) return false;
+      if (seenIds[it.id]) return false;
+      seenIds[it.id] = true;
+    }
+    return true;
+  }
+
+  function load() {
+    var raw;
+    try {
+      raw = window.localStorage.getItem(STORAGE_KEY);
+    } catch (e) {
+      showBanner("この端末ではブラウザの保存機能（localStorage）が使えないため、保存されません。入力内容はこのページを閉じると消えます。", false, "storage-unavailable");
+      saveSuspended = true;
+      return emptyState();
+    }
+
+    if (raw === null) {
+      return emptyState();
+    }
+
+    var parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      saveSuspended = true;
+      showBanner(
+        "保存されているデータを読み込めませんでした（壊れている可能性があります）。元のデータは上書きしていません。" +
+        "「JSONから復元する」でバックアップを読み込むか、下のボタンで新規作成してください。",
+        true,
+        "load-parse-error"
+      );
+      return emptyState();
+    }
+
+    if (!isValidState(parsed)) {
+      saveSuspended = true;
+      showBanner(
+        "保存されているデータの形式が想定と異なります。元のデータは上書きしていません。" +
+        "「JSONから復元する」でバックアップを読み込むか、下のボタンで新規作成してください。",
+        true,
+        "load-invalid-state"
+      );
+      return emptyState();
+    }
+
+    if (typeof parsed.lastInspectionAt !== "string") parsed.lastInspectionAt = null;
+    return parsed;
+  }
+
+  function showBanner(message, withResumeButton, key) {
+    key = key || message;
+    if (activeBannerKeys[key]) return;
+    activeBannerKeys[key] = true;
+
+    var area = document.getElementById("bannerArea");
+    var div = document.createElement("div");
+    div.className = "banner error";
+    div.textContent = message;
+    if (withResumeButton) {
+      var btn = document.createElement("button");
+      btn.className = "secondary";
+      btn.textContent = "このまま新規作成を続ける（保存を再開します）";
+      btn.onclick = function () {
+        saveSuspended = false;
+        div.remove();
+        delete activeBannerKeys[key];
+        save();
+      };
+      div.appendChild(btn);
+    }
+    area.appendChild(div);
+  }
+
+  function save() {
+    if (saveSuspended) return false;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      return true;
+    } catch (e) {
+      showBanner(
+        "保存に失敗しました。ブラウザの空き容量や設定を確認してください。この変更はページを閉じると失われる可能性があります。",
+        false,
+        "save-failed"
+      );
+      return false;
+    }
+  }
+
+  function parseDate(ymd) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+    if (!m) return null;
+    var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    var dt = new Date(y, mo - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+    return dt;
+  }
+
+  function today() {
+    var d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  function expiryStatus(expiry) {
+    if (!expiry) return { text: "期限なし", cls: "" };
+    var exp = parseDate(expiry);
+    if (!exp) return { text: "期限なし", cls: "" };
+    var diffDays = Math.round((exp - today()) / 86400000);
+    if (diffDays < 0) return { text: "期限切れ（" + (-diffDays) + "日超過）", cls: "danger" };
+    if (diffDays <= WARN_DAYS) return { text: "期限間近（残り" + diffDays + "日）", cls: "warn" };
+    return { text: "期限 " + expiry, cls: "" };
+  }
+
+  function formatDateTime(iso) {
+    if (!iso) return "未点検";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "未点検";
+    return d.getFullYear() + "/" + pad(d.getMonth() + 1) + "/" + pad(d.getDate()) +
+      " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function render() {
+    document.getElementById("lastInspection").textContent =
+      "前回点検完了: " + formatDateTime(state.lastInspectionAt);
+
+    var list = document.getElementById("itemList");
+    list.innerHTML = "";
+
+    if (state.items.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "section-title";
+      empty.textContent = "項目がありません。下のフォームから追加してください。";
+      list.appendChild(empty);
+      return;
+    }
+
+    state.items.forEach(function (item) {
+      var row = document.createElement("div");
+      row.className = "item" + (item.checked ? " checked" : "");
+
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = item.checked;
+      checkbox.setAttribute("aria-label", "持ち出し袋に入っている");
+      checkbox.onchange = function () {
+        item.checked = checkbox.checked;
+        row.className = "item" + (item.checked ? " checked" : "");
+        save();
+      };
+      row.appendChild(checkbox);
+
+      var body = document.createElement("div");
+      body.className = "item-body";
+
+      var row1 = document.createElement("div");
+      row1.className = "item-row1";
+
+      var nameInput = document.createElement("input");
+      nameInput.className = "name";
+      nameInput.value = item.name;
+      nameInput.setAttribute("aria-label", "持ち物名");
+      nameInput.oninput = function () {
+        if (nameInput.value.trim() !== "") {
+          item.name = nameInput.value;
+          save();
+        }
+      };
+      nameInput.onblur = function () {
+        if (nameInput.value.trim() === "") nameInput.value = item.name;
+      };
+      row1.appendChild(nameInput);
+
+      var qtyInput = document.createElement("input");
+      qtyInput.className = "qty";
+      qtyInput.value = item.qty || "";
+      qtyInput.placeholder = "個数";
+      qtyInput.setAttribute("aria-label", "個数");
+      qtyInput.oninput = function () { item.qty = qtyInput.value; save(); };
+      row1.appendChild(qtyInput);
+
+      body.appendChild(row1);
+
+      var row2 = document.createElement("div");
+      row2.className = "item-row2";
+
+      var expiryLabel = document.createElement("span");
+      expiryLabel.className = "expiry-label";
+      expiryLabel.textContent = "消費期限:";
+      row2.appendChild(expiryLabel);
+
+      var expiryInput = document.createElement("input");
+      expiryInput.type = "date";
+      expiryInput.className = "expiry";
+      expiryInput.value = item.expiry || "";
+      expiryInput.setAttribute("aria-label", "消費期限");
+      expiryInput.onchange = function () {
+        item.expiry = expiryInput.value || null;
+        save();
+        render();
+      };
+      row2.appendChild(expiryInput);
+
+      var status = expiryStatus(item.expiry);
+      var statusSpan = document.createElement("span");
+      statusSpan.className = "expiry-status" + (status.cls ? " " + status.cls : "");
+      statusSpan.textContent = status.text;
+      row2.appendChild(statusSpan);
+
+      var delBtn = document.createElement("button");
+      delBtn.className = "del";
+      delBtn.textContent = "✕";
+      delBtn.setAttribute("aria-label", "削除");
+      delBtn.onclick = function () {
+        if (!window.confirm("「" + item.name + "」を削除しますか？")) return;
+        state.items = state.items.filter(function (x) { return x.id !== item.id; });
+        save();
+        render();
+      };
+      row2.appendChild(delBtn);
+
+      body.appendChild(row2);
+      row.appendChild(body);
+      list.appendChild(row);
+    });
+  }
+
+  function init() {
+    state = load();
+    render();
+
+    document.getElementById("addForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var form = e.target;
+      var name = form.elements.name.value.trim();
+      if (!name) return;
+      var qty = form.elements.qty.value.trim();
+      var expiry = form.elements.expiry.value || null;
+      state.items.push(makeItem(name, qty, expiry));
+      save();
+      render();
+      form.reset();
+      form.elements.name.focus();
+    });
+
+    document.getElementById("finishBtn").addEventListener("click", function () {
+      if (!window.confirm(
+        "点検を完了しますか？\n\n" +
+        "・全項目のチェックマークが外れます（持ち物自体は削除されません）\n" +
+        "・最終点検日時が更新されます"
+      )) return;
+      state.items.forEach(function (it) { it.checked = false; });
+      state.lastInspectionAt = new Date().toISOString();
+      save();
+      render();
+    });
+
+    document.getElementById("exportBtn").addEventListener("click", function () {
+      var data = JSON.stringify(state, null, 2);
+      var blob = new Blob([data], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      var d = new Date();
+      var stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes());
+      a.href = url;
+      a.download = "bosai-checklist_" + stamp + ".json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById("importBtn").addEventListener("click", function () {
+      document.getElementById("importFile").click();
+    });
+
+    document.getElementById("importFile").addEventListener("change", function (e) {
+      var file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var parsed;
+        try {
+          parsed = JSON.parse(reader.result);
+        } catch (err) {
+          window.alert("ファイルを読み込めませんでした（JSON形式ではありません）。");
+          return;
+        }
+        if (!isValidState(parsed)) {
+          window.alert("このファイルの形式が想定と異なるため、復元できません。");
+          return;
+        }
+        if (typeof parsed.lastInspectionAt !== "string") parsed.lastInspectionAt = null;
+        if (!window.confirm(parsed.items.length + "件の持ち物データで、現在のデータを上書きします。よろしいですか？")) return;
+        state = parsed;
+        saveSuspended = false;
+        save();
+        render();
+      };
+      reader.onerror = function () {
+        window.alert("ファイルの読み込み中にエラーが発生しました。");
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  init();
+})();
+</script>
+
+</body>
+</html>
