@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>防災持ち出し袋チェックリスト</title>
 <style>
   :root {
@@ -100,7 +100,8 @@
     min-width: 0;
     border: 1px solid transparent;
     background: transparent;
-    font-size: 15px;
+    /* 16px未満だとiPhoneで入力時に画面が自動拡大されるため16pxにする（拡大禁止の設定は外した） */
+    font-size: 16px;
     font-weight: 600;
     padding: 4px 2px;
     width: 100%;
@@ -110,7 +111,7 @@
     min-width: 0;
     border: 1px solid transparent;
     background: transparent;
-    font-size: 13px;
+    font-size: 16px;
     color: var(--muted);
     padding: 4px 2px;
     width: 100%;
@@ -133,7 +134,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 3px 6px;
-    font-size: 13px;
+    font-size: 16px;
     background: var(--card);
   }
   .expiry-status {
@@ -162,7 +163,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 8px;
-    font-size: 14px;
+    font-size: 16px;
   }
   form#addForm input[name="name"] { flex: 2 1 160px; }
   form#addForm input[name="qty"] { flex: 1 1 90px; }
@@ -235,11 +236,11 @@
   <div class="card">
     <p class="section-title">項目を追加</p>
     <form id="addForm">
-      <input type="text" name="name" placeholder="持ち物名（例: 乾電池）" required>
-      <input type="text" name="qty" placeholder="個数（任意）">
+      <input type="text" name="name" placeholder="持ち物名（例: 乾電池）" maxlength="200" required>
+      <input type="text" name="qty" placeholder="個数（任意）" maxlength="200">
       <div class="field">
         <label for="newExpiry">消費期限（任意）</label>
-        <input type="date" id="newExpiry" name="expiry">
+        <input type="date" id="newExpiry" name="expiry" min="2000-01-01" max="2999-12-31">
       </div>
       <button type="submit">追加</button>
     </form>
@@ -273,9 +274,20 @@
   var FORMAT_VERSION = 1;
   var WARN_DAYS = 30;
 
+  var MIN_YEAR = 2000;
+  var MAX_YEAR = 2999;
+  // ブラウザの保存領域（約5MB）に入るデータなら、書き出したものを必ず復元できるよう5MBまで受け付ける
+  var MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+  var MAX_ITEMS = 500;
+  var MAX_TEXT_LENGTH = 200;
+
   var state = null;
   var saveSuspended = false;
-  var activeBannerKeys = {};
+  var activeBanners = {};
+  // 最後にこの画面が読み込んだ／保存した保存データ（文字列）。
+  // 保存の直前に今の保存データと比べ、別のタブ・画面で変更されていたら上書きしない（2026-11-16 Codexレビュー）
+  var lastRaw = null;
+  var renderedDay = null;
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
 
@@ -325,6 +337,8 @@
     };
   }
 
+  // 読み込み・復元の検証。文字数・件数・年の範囲の制限は「新しく入力するとき」だけにかけ、
+  // 以前の版で保存できたデータは読めるようにしておく（2026-11-16 Codex実装後レビュー）
   function isValidItem(it) {
     if (!it || typeof it !== "object") return false;
     if (typeof it.id !== "string" || it.id === "") return false;
@@ -335,29 +349,53 @@
     return true;
   }
 
+  function isValidInspectionAt(v) {
+    // 欠落（古い形式）と null は「未点検」。値があるなら日時として読めるものだけ
+    return v === undefined || v === null || (typeof v === "string" && !isNaN(new Date(v).getTime()));
+  }
+
   function isValidState(obj) {
     if (!obj || typeof obj !== "object") return false;
     if (obj.formatVersion !== FORMAT_VERSION) return false;
     if (!Array.isArray(obj.items)) return false;
-    var seenIds = {};
+    if (!isValidInspectionAt(obj.lastInspectionAt)) return false;
+    // Setを使い、IDが "__proto__" 等でも正しく重複判定する
+    var seenIds = new Set();
     for (var i = 0; i < obj.items.length; i++) {
       var it = obj.items[i];
       if (!isValidItem(it)) return false;
-      if (seenIds[it.id]) return false;
-      seenIds[it.id] = true;
+      if (seenIds.has(it.id)) return false;
+      seenIds.add(it.id);
     }
     return true;
+  }
+
+  // 検証済みのデータから、知っている項目だけで新しい状態を作る（余分な項目は取り込まない）
+  function normalizeState(obj) {
+    return {
+      formatVersion: FORMAT_VERSION,
+      items: obj.items.map(function (it) {
+        return { id: it.id, name: it.name, qty: it.qty, expiry: it.expiry, checked: it.checked };
+      }),
+      lastInspectionAt: typeof obj.lastInspectionAt === "string" ? obj.lastInspectionAt : null
+    };
+  }
+
+  function readRaw() {
+    return window.localStorage.getItem(STORAGE_KEY);
   }
 
   function load() {
     var raw;
     try {
-      raw = window.localStorage.getItem(STORAGE_KEY);
+      raw = readRaw();
     } catch (e) {
-      showBanner("この端末ではブラウザの保存機能（localStorage）が使えないため、保存されません。入力内容はこのページを閉じると消えます。", false, "storage-unavailable");
+      showBanner("この端末ではブラウザの保存機能（localStorage）が使えないため、保存されません。入力内容はこのページを閉じると消えます。" +
+        "ブラウザの設定（プライベートモード等）を見直したら、下のボタンで読み込み直してください。", "reload", "storage-unavailable");
       saveSuspended = true;
       return emptyState();
     }
+    lastRaw = raw;
 
     if (raw === null) {
       return emptyState();
@@ -371,7 +409,7 @@
       showBanner(
         "保存されているデータを読み込めませんでした（壊れている可能性があります）。元のデータは上書きしていません。" +
         "「JSONから復元する」でバックアップを読み込むか、下のボタンで新規作成してください。",
-        true,
+        "resume",
         "load-parse-error"
       );
       return emptyState();
@@ -382,52 +420,116 @@
       showBanner(
         "保存されているデータの形式が想定と異なります。元のデータは上書きしていません。" +
         "「JSONから復元する」でバックアップを読み込むか、下のボタンで新規作成してください。",
-        true,
+        "resume",
         "load-invalid-state"
       );
       return emptyState();
     }
 
-    if (typeof parsed.lastInspectionAt !== "string") parsed.lastInspectionAt = null;
-    return parsed;
+    return normalizeState(parsed);
   }
 
-  function showBanner(message, withResumeButton, key) {
+  // button: "resume"（保存を再開）／"reload"（読み込み直し）／なし
+  function showBanner(message, button, key) {
     key = key || message;
-    if (activeBannerKeys[key]) return;
-    activeBannerKeys[key] = true;
+    if (activeBanners[key]) return;
 
     var area = document.getElementById("bannerArea");
     var div = document.createElement("div");
     div.className = "banner error";
     div.textContent = message;
-    if (withResumeButton) {
+    activeBanners[key] = div;
+    if (button === "resume") {
       var btn = document.createElement("button");
       btn.className = "secondary";
       btn.textContent = "このまま新規作成を続ける（保存を再開します）";
       btn.onclick = function () {
         saveSuspended = false;
-        div.remove();
-        delete activeBannerKeys[key];
-        save();
+        removeBanner(key);
+        // 止めている間に別の画面で正しいデータへ直されていたら、上書きせずにそちらを表示する
+        // （2026-11-16 Codex実装後レビュー: 復旧したデータを再開ボタンで上書きしていた）
+        if (reloadIfChangedElsewhere() !== "none") return;
+        // 壊れたデータを、意図して新規作成で置き換える（このときだけ上書きを許可）
+        save(true);
       };
       div.appendChild(btn);
+    } else if (button === "reload") {
+      var rbtn = document.createElement("button");
+      rbtn.className = "secondary";
+      rbtn.textContent = "読み込み直す";
+      rbtn.onclick = function () { window.location.reload(); };
+      div.appendChild(rbtn);
     }
     area.appendChild(div);
   }
 
-  function save() {
-    if (saveSuspended) return false;
+  function removeBanner(key) {
+    var div = activeBanners[key];
+    if (!div) return;
+    div.remove();
+    delete activeBanners[key];
+  }
+
+  // 保存データが読み込み時から変わっていたら（別のタブ・画面で変更）、最新を読み込み直す。
+  // 戻り値: "none"（変更なし）／"reloaded"（最新の内容に置き換えた）／"suspended"（消された・壊れたので保存を止めた）
+  function reloadIfChangedElsewhere() {
+    var current;
+    try { current = readRaw(); } catch (e) { return "none"; }
+    if (current === lastRaw) return "none";
+    var parsed = null;
+    try { parsed = JSON.parse(current); } catch (e) { parsed = null; }
+    if (current === null || !isValidState(parsed)) {
+      if (saveSuspended) { lastRaw = current; return "none"; }
+      // 別の画面で消された・壊れた場合は、こちらの内容で上書きせず保存を止めて知らせる
+      saveSuspended = true;
+      lastRaw = current;
+      showBanner(
+        "別のタブ・画面で保存データが削除されたか、読めない状態になっています。この画面の内容では上書きしていません。" +
+        "この画面の内容で保存し直す場合は、下のボタンを押してください。",
+        "resume",
+        "changed-elsewhere-invalid"
+      );
+      return "suspended";
+    }
+    // 正しいデータに変わっていた：保存を止めていた場合も、そのデータを表示して保存を再開する
+    if (saveSuspended) {
+      saveSuspended = false;
+      ["load-parse-error", "load-invalid-state", "changed-elsewhere-invalid"].forEach(removeBanner);
+    }
+    state = normalizeState(parsed);
+    lastRaw = current;
+    render();
+    showBanner(
+      "別のタブ・画面で内容が変更されていたため、最新の内容を表示しました。直前の操作が反映されていない場合は、もう一度行ってください。",
+      null,
+      "changed-elsewhere"
+    );
+    return "reloaded";
+  }
+
+  // 戻り値: "saved"（保存できた）／"conflict"（別の画面の最新内容に置き換えた。今回の操作は保存していない）／
+  //         "failed"（保存できなかった。画面の内容はそのまま）
+  function save(overwrite) {
+    if (saveSuspended) return "failed";
+    if (!overwrite) {
+      var r = reloadIfChangedElsewhere();
+      if (r === "reloaded") return "conflict";
+      if (r === "suspended") return "failed";
+    }
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      return true;
+      var raw = JSON.stringify(state);
+      window.localStorage.setItem(STORAGE_KEY, raw);
+      lastRaw = raw;
+      removeBanner("save-failed");
+      removeBanner("changed-elsewhere");
+      return "saved";
     } catch (e) {
       showBanner(
         "保存に失敗しました。ブラウザの空き容量や設定を確認してください。この変更はページを閉じると失われる可能性があります。",
-        false,
+        null,
         "save-failed"
       );
-      return false;
+      return "failed";
     }
   }
 
@@ -435,9 +537,18 @@
     var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
     if (!m) return null;
     var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
-    var dt = new Date(y, mo - 1, d);
+    // new Date(99, ...) は1999年に化けるため、setFullYear で年をそのまま設定する
+    // （以前は0099年等を保存すると、次回の読み込みでリスト全体が読めなくなっていた）
+    var dt = new Date(2000, mo - 1, d);
+    dt.setFullYear(y, mo - 1, d);
     if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
     return dt;
+  }
+
+  // 新しく入力する期限は2000〜2999年に限る（年の打ち間違い防止）
+  function isInputDateOk(ymd) {
+    var dt = parseDate(ymd);
+    return !!dt && dt.getFullYear() >= MIN_YEAR && dt.getFullYear() <= MAX_YEAR;
   }
 
   function today() {
@@ -464,6 +575,7 @@
   }
 
   function render() {
+    renderedDay = today().getTime();
     document.getElementById("lastInspection").textContent =
       "前回点検完了: " + formatDateTime(state.lastInspectionAt);
 
@@ -502,7 +614,12 @@
       var nameInput = document.createElement("input");
       nameInput.className = "name";
       nameInput.value = item.name;
+      nameInput.maxLength = MAX_TEXT_LENGTH;
       nameInput.setAttribute("aria-label", "持ち物名");
+      // 編集を始めたときの名前を覚えておき、空のまま確定したらそこへ戻す
+      // （2026-11-16 Codexレビュー: 1文字ずつ消すと、最後に残った1文字が名前として保存されていた）
+      var nameAtFocus = item.name;
+      nameInput.onfocus = function () { nameAtFocus = item.name; };
       nameInput.oninput = function () {
         if (nameInput.value.trim() !== "") {
           item.name = nameInput.value;
@@ -510,12 +627,19 @@
         }
       };
       nameInput.onblur = function () {
-        if (nameInput.value.trim() === "") nameInput.value = item.name;
+        if (nameInput.value.trim() === "") {
+          nameInput.value = nameAtFocus;
+          if (item.name !== nameAtFocus) {
+            item.name = nameAtFocus;
+            save();
+          }
+        }
       };
       row1.appendChild(nameInput);
 
       var qtyInput = document.createElement("input");
       qtyInput.className = "qty";
+      qtyInput.maxLength = MAX_TEXT_LENGTH;
       qtyInput.value = item.qty || "";
       qtyInput.placeholder = "個数";
       qtyInput.setAttribute("aria-label", "個数");
@@ -536,9 +660,17 @@
       expiryInput.type = "date";
       expiryInput.className = "expiry";
       expiryInput.value = item.expiry || "";
+      expiryInput.min = MIN_YEAR + "-01-01";
+      expiryInput.max = MAX_YEAR + "-12-31";
       expiryInput.setAttribute("aria-label", "消費期限");
       expiryInput.onchange = function () {
-        item.expiry = expiryInput.value || null;
+        var v = expiryInput.value || null;
+        if (v !== null && !isInputDateOk(v)) {
+          window.alert("消費期限は" + MIN_YEAR + "年〜" + MAX_YEAR + "年の日付を入力してください。");
+          expiryInput.value = item.expiry || "";
+          return;
+        }
+        item.expiry = v;
         save();
         render();
       };
@@ -579,10 +711,19 @@
       if (!name) return;
       var qty = form.elements.qty.value.trim();
       var expiry = form.elements.expiry.value || null;
+      if (expiry !== null && !isInputDateOk(expiry)) {
+        window.alert("消費期限は" + MIN_YEAR + "年〜" + MAX_YEAR + "年の日付を入力してください。");
+        return;
+      }
+      if (state.items.length >= MAX_ITEMS) {
+        window.alert("項目は" + MAX_ITEMS + "件までです。");
+        return;
+      }
       state.items.push(makeItem(name, qty, expiry));
-      save();
+      var result = save();
       render();
-      form.reset();
+      // 別の画面の変更を読み込み直した（追加は保存されていない）ときは、入力内容を残してもう一度押せるようにする
+      if (result !== "conflict") form.reset();
       form.elements.name.focus();
     });
 
@@ -592,9 +733,16 @@
         "・全項目のチェックマークが外れます（持ち物自体は削除されません）\n" +
         "・最終点検日時が更新されます"
       )) return;
+      // 保存できたときだけ点検完了を確定する（2026-11-16 Codexレビュー: 保存失敗でも完了表示になり、開き直すと戻っていた）
+      var before = JSON.stringify(state);
       state.items.forEach(function (it) { it.checked = false; });
       state.lastInspectionAt = new Date().toISOString();
-      save();
+      var result = save();
+      if (result === "failed") {
+        state = JSON.parse(before);
+        window.alert("保存できなかったため、点検完了を取り消しました（チェックはそのままです）。画面上部の案内を確認してください。");
+      }
+      // "conflict" のときは別の画面の最新内容を表示済み（点検完了は保存していない）
       render();
     });
 
@@ -621,6 +769,10 @@
       var file = e.target.files[0];
       e.target.value = "";
       if (!file) return;
+      if (file.size > MAX_IMPORT_BYTES) {
+        window.alert("ファイルが大きすぎます（上限5MB）。このアプリで書き出したJSONを選んでください。");
+        return;
+      }
       var reader = new FileReader();
       reader.onload = function () {
         var parsed;
@@ -634,11 +786,14 @@
           window.alert("このファイルの形式が想定と異なるため、復元できません。");
           return;
         }
-        if (typeof parsed.lastInspectionAt !== "string") parsed.lastInspectionAt = null;
         if (!window.confirm(parsed.items.length + "件の持ち物データで、現在のデータを上書きします。よろしいですか？")) return;
-        state = parsed;
+        state = normalizeState(parsed);
         saveSuspended = false;
-        save();
+        // 復元は意図した上書きなので、別の画面での変更があっても上書きする
+        if (save(true) === "saved") {
+          // 復元できたので、読み込み失敗・保存失敗などの古い案内を消す
+          ["load-parse-error", "load-invalid-state", "changed-elsewhere", "changed-elsewhere-invalid", "storage-unavailable"].forEach(removeBanner);
+        }
         render();
       };
       reader.onerror = function () {
@@ -646,6 +801,28 @@
       };
       reader.readAsText(file);
     });
+
+    // 別のタブで保存されたら、すぐに最新を表示する
+    window.addEventListener("storage", function (e) {
+      if (e.key === STORAGE_KEY || e.key === null) reloadIfChangedElsewhere();
+    });
+
+    // 画面に戻ったとき：別の画面での変更を取り込み、日付が変わっていれば期限表示を更新する
+    // （2026-11-16 Codexレビュー: 開いたまま翌日になっても「残り0日」のままだった）
+    function refreshOnReturn() {
+      if (reloadIfChangedElsewhere() !== "none") return;
+      if (today().getTime() !== renderedDay) render();
+    }
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") refreshOnReturn();
+    });
+    window.addEventListener("pageshow", refreshOnReturn);
+    // 開いたまま日付をまたいだときのため、1分ごとに日付だけ確認する（入力中は作り直さない）
+    window.setInterval(function () {
+      var el = document.activeElement;
+      var editing = el && el.tagName === "INPUT" && document.getElementById("itemList").contains(el);
+      if (!editing && today().getTime() !== renderedDay) render();
+    }, 60000);
   }
 
   init();
